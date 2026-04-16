@@ -29,6 +29,7 @@ export default function App() {
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hasDragged = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -46,6 +47,7 @@ export default function App() {
 
   const onPointerDown = (e: React.PointerEvent) => {
     setIsDragging(true);
+    hasDragged.current = false;
     setStartX(e.pageX - (scrollRef.current?.offsetLeft || 0));
     setScrollLeft(scrollRef.current?.scrollLeft || 0);
   };
@@ -55,6 +57,9 @@ export default function App() {
     e.preventDefault();
     const x = e.pageX - (scrollRef.current.offsetLeft || 0);
     const walk = (x - startX) * 1.5;
+    if (Math.abs(x - startX) > 5) {
+      hasDragged.current = true;
+    }
     scrollRef.current.scrollLeft = scrollLeft - walk;
   };
 
@@ -68,13 +73,13 @@ export default function App() {
       <div className="absolute top-0 left-0 right-0 h-48 z-50 flex flex-col items-center group pointer-events-none">
         
         {/* The hover area itself (invisible, but triggers the hover) */}
-        <div className="absolute top-0 w-48 h-8 cursor-pointer pointer-events-auto z-50 transition-all duration-300 group-hover:w-full group-hover:h-32" />
+        <div className="absolute top-0 w-48 h-8 cursor-pointer pointer-events-auto z-40 transition-all duration-300 group-hover:w-full group-hover:h-32" />
         
         {/* The subtle dock line, visible when NOT hovered */}
-        <div className="w-32 h-1.5 bg-zinc-300/80 rounded-full mt-2 shadow-sm transition-all duration-300 group-hover:opacity-0 group-hover:scale-x-0 pointer-events-auto cursor-pointer" />
+        <div className="w-32 h-1.5 bg-zinc-300/80 rounded-full mt-2 shadow-sm transition-all duration-300 group-hover:opacity-0 group-hover:scale-x-0 pointer-events-auto cursor-pointer z-40" />
         
         {/* The Fade-in / Slide-down Dock UI */}
-        <div className="absolute top-0 opacity-0 -translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] w-full pointer-events-none pt-4">
+        <div className="absolute top-0 opacity-0 -translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] w-full pointer-events-none pt-4 z-50">
           {/* Top Header / Nav */}
           <header className="absolute top-0 left-0 right-0 p-6 flex justify-end items-start z-40 pointer-events-none pt-4">
             <div className="pointer-events-auto">
@@ -114,7 +119,7 @@ export default function App() {
                       key={day.toISOString()}
                       data-selected={isSelected}
                       onPointerUp={(e) => {
-                        if (!isDragging || Math.abs(e.pageX - (scrollRef.current?.offsetLeft || 0) - startX) < 10) {
+                        if (!hasDragged.current) {
                           setCurrentDate(day);
                         }
                       }}
