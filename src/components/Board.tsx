@@ -22,9 +22,10 @@ interface DraggableItemProps {
   onImagePreview?: (url: string) => void;
   allItems: BoardItem[];
   onAddItem: (item: BoardItem) => void;
+  onUpdateAllItem?: (id: string, updates: Partial<BoardItem>) => void;
 }
 
-export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePreview, allItems, onAddItem }: DraggableItemProps) => {
+export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePreview, allItems, onAddItem, onUpdateAllItem }: DraggableItemProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [deleteMenu, setDeleteMenu] = useState<{x: number, y: number} | null>(null);
   const [isEditingArrow, setIsEditingArrow] = useState(false);
@@ -46,6 +47,77 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
     }
   }, [item.content, item.type]);
 
+  const [isEnhancing, setIsEnhancing] = useState(false);
+
+  const handleEnhance = async () => {
+     let key = groqKey;
+     if (!key) {
+        key = window.prompt("Enter your Groq API key to enhance with Llama 3.1:") || '';
+        if (!key.trim()) return;
+        localStorage.setItem('groq_api_key', key.trim());
+        setGroqKey(key.trim());
+     }
+
+     setIsEnhancing(true);
+
+     try {
+       const isTask = item.type === 'task';
+       let contentToEnhance = '';
+       let systemPrompt = '';
+
+       if (isTask) {
+          const tasksText = (item.tasks || []).map(t => `${t.checked ? '[x]' : '[ ]'} ${t.text}`).join('\n');
+          contentToEnhance = tasksText;
+          systemPrompt = "You are an AI assistant. Enhance, organize, and expand the following task list. Fix typos and logically group if necessary. YOU MUST OUTPUT A VALID JSON ARRAY OF STRINGS ONLY representing the new tasks (e.g. [\"Task 1\", \"Task 2\"]). Output NO other text.";
+       } else {
+          contentToEnhance = item.content; 
+          systemPrompt = "You are an AI assistant. Enhance, rewrite, and improve the clarity of the following text. You MUST reply using basic HTML formatting (e.g. <p>, <ul><li>, <strong>) because it will be inserted into a rich text editor. Do not use Markdown backticks. Do not wrap in JSON. Output NO conversational fluff.";
+       }
+
+       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+         method: 'POST',
+         headers: {
+           'Authorization': `Bearer ${key}`,
+           'Content-Type': 'application/json'
+         },
+         body: JSON.stringify({
+           model: 'llama-3.1-8b-instant',
+           messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: contentToEnhance }
+           ]
+         })
+       });
+
+       if (!res.ok) throw new Error("Failed to connect to Groq");
+       const data = await res.json();
+       const reply = data.choices[0].message.content;
+
+       if (isTask) {
+          try {
+             const cleanReply = reply.replace(/```json/g, '').replace(/```/g, '').trim();
+             const parsed = JSON.parse(cleanReply);
+             if (Array.isArray(parsed) && parsed.every(i => typeof i === 'string')) {
+                onUpdate({
+                   tasks: parsed.map((t: string) => ({ id: crypto.randomUUID(), text: t, checked: false }))
+                });
+             } else {
+                throw new Error("Invalid format");
+             }
+          } catch(e) {
+             console.error("AI did not return valid JSON array", reply);
+             alert("AI failed to return valid tasks. Wait and try again.");
+          }
+       } else {
+          if (editor) editor.commands.setContent(reply);
+       }
+     } catch(e: any) {
+        alert(e.message);
+     } finally {
+        setIsEnhancing(false);
+     }
+  };
+
   const handleAiSubmit = async () => {
     if (!aiInput.trim()) return;
     setIsAiLoading(true);
@@ -53,13 +125,29 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
       const contextText = allItems.map((i, index) => {
         let text = '';
         if (i.type === 'text' || i.type === 'text-clear') text = i.content.replace(/<[^>]*>?/gm, '');
-        else if (i.type === 'task') text = (i.tasks || []).map(t => `${t.checked ? '[x]' : '[ ]'} ${t.text}`).join('\n');
-        return text ? `Item ${index + 1} (${i.type}):\n${text}` : `Item ${index + 1} (${i.type})`;
+        else if (i.type === 'task') text = (i.tasks || []).map(t => `${t.checked ? '[x]' : '[ ]'} ${t.id} : ${t.text}`).join('\n');
+        return text ? `Item ID: ${i.id} (${i.type}):\n${text}` : `Item ID: ${i.id} (${i.type})`;
       }).join('\n\n---\n\n');
 
       const systemMessage = {
         role: 'system',
-        content: `You are an AI assistant helping a user manage their bulletin board. Here is the current contents of the board:\n\n${contextText}\n\nIMPORTANT INSTRUCTIONS:\n- Keep your response extremely concise, do not add conversational fluff.\n- We have no follow-up capability. This is a one-shot query. Make it final.\n- If the user explicitly asks you to create or make a list of tasks, to-dos, or actionable items, you MUST output valid JSON ONLY representing an array of task strings. e.g. ["Task 1", "Task 2"]. Output NO other text.\n- Otherwise, reply using basic HTML formatting (e.g. <p>, <ul><li>, <strong>) because it will be inserted into a rich text editor. Do not use Markdown backticks. Do not wrap in JSON unless creating a task list.`
+        content: `You are an AI assistant for a bulletin board. Current board state:
+${contextText}
+
+IMPORTANT: You MUST respond ONLY with a valid JSON object matching this structure:
+{
+  "action": "reply_text" | "create_tasks" | "mark_complete" | "create_clear_text" | "create_embed",
+  "payload": { }
+}
+
+Examples of payloads depending on action:
+- "reply_text": { "body": "<p>Formatted HTML...</p>" }
+- "create_tasks": { "tasks": ["Task 1", "Task 2"] }
+- "mark_complete": { "updates": [ { "itemId": "uuid", "taskIds": ["task-id-1", "task-id-2"] } ] }
+- "create_clear_text": { "body": "plain text" }
+- "create_embed": { "url": "https://soundcloud.com/..." }
+
+Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
       };
 
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -80,35 +168,49 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
       }
 
       const data = await res.json();
-      const reply = data.choices[0].message.content;
-
-      let isTasks = false;
+      const reply = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+      let parsed: any = null;
       try {
-         const parsed = JSON.parse(reply);
-         if (Array.isArray(parsed) && parsed.every(i => typeof i === 'string')) {
-            isTasks = true;
+         parsed = JSON.parse(reply);
+      } catch (e) {
+         // Fallback if AI didn't return valid JSON
+         parsed = { action: 'reply_text', payload: { body: reply } };
+      }
+
+      switch (parsed?.action) {
+         case "create_tasks":
             onAddItem({
                id: crypto.randomUUID(),
                type: 'task',
                x: item.x,
                y: item.y,
                content: '',
-               tasks: parsed.map((t: string) => ({ id: crypto.randomUUID(), text: t, checked: false }))
+               tasks: parsed.payload?.tasks ? parsed.payload.tasks.map((t: string) => ({ id: crypto.randomUUID(), text: t, checked: false })) : [{ id: crypto.randomUUID(), text: 'Empty', checked: false }]
             });
-         }
-      } catch {
-         isTasks = false;
-      }
-
-      if (!isTasks) {
-         onAddItem({
-            id: crypto.randomUUID(),
-            type: 'text',
-            x: item.x,
-            y: item.y,
-            width: item.width || 300,
-            content: reply
-         });
+            break;
+         case "mark_complete":
+            if (onUpdateAllItem && parsed.payload?.updates) {
+               for (const update of parsed.payload.updates) {
+                  const targetItem = allItems.find(i => i.id === update.itemId);
+                  if (targetItem && targetItem.tasks) {
+                     const newTasks = targetItem.tasks.map(t => 
+                        update.taskIds.includes(t.id) ? { ...t, checked: true } : t
+                     );
+                     onUpdateAllItem(update.itemId, { tasks: newTasks });
+                  }
+               }
+            }
+            break;
+         case "create_clear_text":
+            onAddItem({ id: crypto.randomUUID(), type: 'text-clear', x: item.x, y: item.y, width: 300, content: parsed.payload?.body || '' });
+            break;
+         case "create_embed":
+            onAddItem({ id: crypto.randomUUID(), type: 'embed', x: item.x, y: item.y, width: 300, height: 160, content: parsed.payload?.url || '' });
+            break;
+         case "reply_text":
+         default:
+            onAddItem({ id: crypto.randomUUID(), type: 'text', x: item.x, y: item.y, width: 300, content: parsed.payload?.body || parsed.payload || '' });
+            break;
       }
 
       onRemove();
@@ -148,12 +250,11 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
   const embedType = useMemo(() => {
     if ((item.type !== 'embed' && item.type !== 'video') || !item.content || item.content === 'editing') return null;
     
-    // ReactPlayer has a static canPlay method
-    if (ReactPlayer.canPlay(item.content)) {
+    if (item.type === 'video') {
        return { type: 'player', url: item.content };
     }
     
-    // Fallback to link block
+    // Fallback to link block for 'embed'
     try {
       let url = item.content;
       if (!url.startsWith('http')) url = 'https://' + url;
@@ -273,7 +374,13 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
       onDragEnd={(e, info) => {
         setIsDragging(false);
         document.body.classList.remove('select-none');
-        onUpdate({ x: item.x + info.offset.x, y: item.y + info.offset.y });
+        if (ref.current && boardRef.current) {
+          const rect = ref.current.getBoundingClientRect();
+          const boardRect = boardRef.current.getBoundingClientRect();
+          onUpdate({ x: rect.left - boardRect.left, y: rect.top - boardRect.top });
+        } else {
+          onUpdate({ x: item.x + info.offset.x, y: item.y + info.offset.y });
+        }
       }}
       initial={{ x: item.x, y: item.y, opacity: 0, scale: 0.8 }}
       animate={{ x: item.x, y: item.y, opacity: 1, scale: 1 }}
@@ -290,7 +397,7 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
         isDragging ? "z-50" : "z-10"
       )}
     >
-      {/* Context Menu for Deletion */}
+      {/* Context Menu for Deletion and AI Enhance */}
       <AnimatePresence>
         {deleteMenu && (
           <motion.div
@@ -298,14 +405,22 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.1 }}
-            className="absolute z-[100] w-32 bg-white/95 backdrop-blur-md rounded-xl shadow-xl shadow-black/5 border border-zinc-200 overflow-hidden py-1"
+            className="absolute z-[100] w-40 bg-white/95 backdrop-blur-md rounded-xl shadow-xl shadow-black/5 border border-zinc-200 overflow-hidden py-1"
             style={{ left: deleteMenu.x, top: deleteMenu.y }}
             onPointerDown={(e) => e.stopPropagation()}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
           >
+            {(item.type === 'text' || item.type === 'text-clear' || item.type === 'task') && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); setDeleteMenu(null); handleEnhance(); }}
+                className="w-full flex items-center px-3 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors cursor-pointer relative z-50 text-left"
+              >
+                <Sparkles size={16} className="mr-2" /> Enhance (AI)
+              </button>
+            )}
             <button 
               onClick={(e) => { e.stopPropagation(); onRemove(); setDeleteMenu(null); }}
-              className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer relative z-50"
+              className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer relative z-50 text-left"
             >
               <Trash2 size={16} className="mr-2" /> Delete
             </button>
@@ -325,6 +440,14 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
         item.type === 'arrow' && "bg-transparent backdrop-blur-none border-none shadow-none p-0 overflow-visible",
         item.type === 'text-clear' && "bg-transparent backdrop-blur-none border-transparent shadow-none p-4 overflow-visible hover:border-zinc-200/50"
       )}>
+        {isEnhancing && (
+          <div className="absolute inset-0 z-50 bg-white/50 backdrop-blur-sm rounded-2xl flex items-center justify-center pointer-events-none">
+             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
+               <Sparkles className="text-purple-500" size={24} />
+             </motion.div>
+          </div>
+        )}
+
         {item.type === 'arrow' && (
           <div 
             className="w-full h-full relative" 
@@ -704,6 +827,7 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
             onImagePreview={onImagePreview}
             allItems={items}
             onAddItem={onAddItem}
+            onUpdateAllItem={onUpdateItem}
           />
         ))}
       </AnimatePresence>
