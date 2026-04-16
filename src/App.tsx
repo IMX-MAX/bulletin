@@ -10,7 +10,7 @@ import { Board } from './components/Board';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
-import { X } from 'lucide-react';
+import { X, Settings, Download, Upload } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -18,8 +18,6 @@ function cn(...inputs: ClassValue[]) {
 
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
-
-  const { getDayItems, addItem, updateItem, removeItem } = useStore();
 
   const handleGoToToday = () => setCurrentDate(new Date());
 
@@ -35,6 +33,48 @@ export default function App() {
   const [scrollLeft, setScrollLeft] = useState(0);
 
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '.') {
+        e.preventDefault();
+        setIsSettingsOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const { data, getDayItems, addItem, updateItem, removeItem, replaceData } = useStore();
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bulletin_export_${format(new Date(), 'yyyy-MM-dd')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const parsed = JSON.parse(evt.target?.result as string);
+        replaceData(parsed);
+        setIsSettingsOpen(false);
+      } catch (err) {
+        alert("Invalid file format");
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -69,6 +109,71 @@ export default function App() {
   return (
     <div className="min-h-screen w-full bg-[#f0f0f2] text-zinc-900 overflow-hidden flex flex-col font-sans relative">
       
+      {/* Settings Menu Modal */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setIsSettingsOpen(false)}
+          >
+            <div 
+              className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-md"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-zinc-100 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Settings size={18} className="text-zinc-500" />
+                  <h2 className="font-semibold text-zinc-800">Manage Space</h2>
+                </div>
+                <button onClick={() => setIsSettingsOpen(false)} className="text-zinc-400 hover:text-zinc-600">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-700 mb-2">Groq API Key</h3>
+                  <input 
+                    type="password"
+                    placeholder="gsk_..."
+                    className="w-full text-sm p-2 bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-purple-400 focus:bg-white"
+                    defaultValue={localStorage.getItem('groq_api_key') || ''}
+                    onChange={(e) => {
+                      if (e.target.value.trim()) localStorage.setItem('groq_api_key', e.target.value.trim());
+                      else localStorage.removeItem('groq_api_key');
+                    }}
+                  />
+                  <p className="text-xs text-zinc-400 mt-1">Used for 'Enhance with AI'. Stored locally.</p>
+                </div>
+
+                <div className="pt-4 border-t border-zinc-100">
+                  <h3 className="text-sm font-medium text-zinc-700 mb-2">Data Management</h3>
+                  <div className="flex space-x-3">
+                    <button 
+                      onClick={handleExport}
+                      className="flex-1 flex items-center justify-center px-4 py-2 bg-white border border-zinc-200 text-sm font-medium rounded-lg hover:bg-zinc-50 transition-colors"
+                    >
+                      <Download size={14} className="mr-2 text-zinc-500" /> Export JSON
+                    </button>
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1 flex items-center justify-center px-4 py-2 bg-zinc-900 text-white text-sm font-medium rounded-lg hover:bg-zinc-800 transition-colors"
+                    >
+                      <Upload size={14} className="mr-2 text-zinc-400" /> Import JSON
+                    </button>
+                    <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-2">Export your entire bulletin history as a single file.</p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Dock-style Expandable Header */}
       <div className="absolute top-0 left-0 right-0 h-48 z-50 flex flex-col items-center group pointer-events-none">
         

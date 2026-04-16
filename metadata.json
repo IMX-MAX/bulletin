@@ -1,6 +1,6 @@
 {
-  "name": "bullitin",
-  "description": "A grey screen application.",
+  "name": "bulletin",
+  "description": "a quiet space for your thoughts",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

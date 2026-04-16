@@ -69,5 +69,9 @@ export function useStore() {
     }));
   };
 
-  return { data, getDayItems, addItem, updateItem, removeItem };
+  const replaceData = (newData: DayData) => {
+    setData(newData);
+  };
+
+  return { data, getDayItems, addItem, updateItem, removeItem, replaceData };
 }

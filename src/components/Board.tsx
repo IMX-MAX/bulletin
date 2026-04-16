@@ -666,7 +666,8 @@ Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
                        url: embedType.url,
                        width: '100%',
                        height: '100%',
-                       controls: true
+                       controls: true,
+                       config: { file: { forceVideo: true } }
                      })}
                      <a href={embedType.url} target="_blank" rel="noopener noreferrer" className="absolute top-2 left-2 bg-black/60 text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-black/80 shadow-sm" title="Open in new tab">
                         <ExternalLink size={14} />
