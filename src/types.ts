@@ -1,4 +1,4 @@
-export type ItemType = 'text' | 'task' | 'image' | 'embed' | 'video' | 'arrow';
+export type ItemType = 'text' | 'text-clear' | 'task' | 'image' | 'embed' | 'video' | 'arrow' | 'ai';
 
 export interface TaskItem {
   id: string;

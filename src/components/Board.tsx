@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
-import { GripHorizontal, Trash2, Type, CheckSquare, Image as ImageIcon, Link as LinkIcon, ExternalLink, Edit2, PlaySquare, MoveUpRight } from 'lucide-react';
+import { GripHorizontal, Trash2, Type, CheckSquare, Image as ImageIcon, Link as LinkIcon, ExternalLink, Edit2, PlaySquare, MoveUpRight, Sparkles } from 'lucide-react';
 import { BoardItem, ItemType } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -20,9 +20,11 @@ interface DraggableItemProps {
   onRemove: () => void;
   boardRef: React.RefObject<HTMLDivElement | null>;
   onImagePreview?: (url: string) => void;
+  allItems: BoardItem[];
+  onAddItem: (item: BoardItem) => void;
 }
 
-export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePreview }: DraggableItemProps) => {
+export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePreview, allItems, onAddItem }: DraggableItemProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [deleteMenu, setDeleteMenu] = useState<{x: number, y: number} | null>(null);
   const [isEditingArrow, setIsEditingArrow] = useState(false);
@@ -31,6 +33,95 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
   const lastClickRef = useRef<number>(0);
   
   const [size, setSize] = useState({ width: item.width || 0, height: item.height || 0 });
+
+  const [groqKey, setGroqKey] = useState(() => localStorage.getItem('groq_api_key') || '');
+  const [tempKey, setTempKey] = useState('');
+  const [aiInput, setAiInput] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (item.type === 'ai') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [item.content, item.type]);
+
+  const handleAiSubmit = async () => {
+    if (!aiInput.trim()) return;
+    setIsAiLoading(true);
+    try {
+      const contextText = allItems.map((i, index) => {
+        let text = '';
+        if (i.type === 'text' || i.type === 'text-clear') text = i.content.replace(/<[^>]*>?/gm, '');
+        else if (i.type === 'task') text = (i.tasks || []).map(t => `${t.checked ? '[x]' : '[ ]'} ${t.text}`).join('\n');
+        return text ? `Item ${index + 1} (${i.type}):\n${text}` : `Item ${index + 1} (${i.type})`;
+      }).join('\n\n---\n\n');
+
+      const systemMessage = {
+        role: 'system',
+        content: `You are an AI assistant helping a user manage their bulletin board. Here is the current contents of the board:\n\n${contextText}\n\nIMPORTANT INSTRUCTIONS:\n- Keep your response extremely concise, do not add conversational fluff.\n- We have no follow-up capability. This is a one-shot query. Make it final.\n- If the user explicitly asks you to create or make a list of tasks, to-dos, or actionable items, you MUST output valid JSON ONLY representing an array of task strings. e.g. ["Task 1", "Task 2"]. Output NO other text.\n- Otherwise, reply using basic HTML formatting (e.g. <p>, <ul><li>, <strong>) because it will be inserted into a rich text editor. Do not use Markdown backticks. Do not wrap in JSON unless creating a task list.`
+      };
+
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [systemMessage, { role: 'user', content: aiInput }]
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || 'Error from Groq');
+      }
+
+      const data = await res.json();
+      const reply = data.choices[0].message.content;
+
+      let isTasks = false;
+      try {
+         const parsed = JSON.parse(reply);
+         if (Array.isArray(parsed) && parsed.every(i => typeof i === 'string')) {
+            isTasks = true;
+            onAddItem({
+               id: crypto.randomUUID(),
+               type: 'task',
+               x: item.x,
+               y: item.y,
+               content: '',
+               tasks: parsed.map((t: string) => ({ id: crypto.randomUUID(), text: t, checked: false }))
+            });
+         }
+      } catch {
+         isTasks = false;
+      }
+
+      if (!isTasks) {
+         onAddItem({
+            id: crypto.randomUUID(),
+            type: 'text',
+            x: item.x,
+            y: item.y,
+            width: item.width || 300,
+            content: reply
+         });
+      }
+
+      onRemove();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message);
+      if (err.message.includes('auth') || err.message.includes('key')) {
+        localStorage.removeItem('groq_api_key');
+        setGroqKey('');
+      }
+      setIsAiLoading(false);
+    }
+  };
 
   const editor = useEditor({
     extensions: [
@@ -175,9 +266,13 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
         const rect = ref.current.getBoundingClientRect();
         setDeleteMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top });
       }}
-      onDragStart={() => setIsDragging(true)}
+      onDragStart={() => {
+        setIsDragging(true);
+        document.body.classList.add('select-none');
+      }}
       onDragEnd={(e, info) => {
         setIsDragging(false);
+        document.body.classList.remove('select-none');
         onUpdate({ x: item.x + info.offset.x, y: item.y + info.offset.y });
       }}
       initial={{ x: item.x, y: item.y, opacity: 0, scale: 0.8 }}
@@ -227,7 +322,8 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
         "bg-white/90 backdrop-blur-md shadow-lg border border-zinc-200 rounded-2xl p-4 transition-shadow relative overflow-hidden h-full flex flex-col",
         isDragging ? "shadow-xl shadow-zinc-900/10 scale-[1.02] cursor-grabbing" : "cursor-grab",
         item.type === 'image' && "p-2",
-        item.type === 'arrow' && "bg-transparent backdrop-blur-none border-none shadow-none p-0 overflow-visible"
+        item.type === 'arrow' && "bg-transparent backdrop-blur-none border-none shadow-none p-0 overflow-visible",
+        item.type === 'text-clear' && "bg-transparent backdrop-blur-none border-transparent shadow-none p-4 overflow-visible hover:border-zinc-200/50"
       )}>
         {item.type === 'arrow' && (
           <div 
@@ -267,11 +363,70 @@ export const DraggableItem = ({ item, onUpdate, onRemove, boardRef, onImagePrevi
           </div>
         )}
 
-        {item.type === 'text' && (
+        {(item.type === 'text' || item.type === 'text-clear') && (
           <div className="w-full h-full relative group/text flex flex-col min-w-[200px] min-h-[40px] no-drag">
              <div className="prose prose-sm prose-zinc w-full max-w-none text-zinc-800 break-words leading-relaxed cursor-text overflow-y-auto no-scrollbar h-full">
                <EditorContent editor={editor} />
              </div>
+          </div>
+        )}
+
+        {item.type === 'ai' && (
+          <div className="w-full h-full relative flex flex-col min-w-[250px] min-h-[50px] no-drag" onPointerDown={(e) => e.stopPropagation()}>
+             {!groqKey ? (
+                <div className="flex flex-col h-full items-center justify-center space-y-4 p-4 text-center">
+                   <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-2"><Sparkles size={24} /></div>
+                   <h3 className="text-sm font-semibold text-zinc-800">Setup AI Block</h3>
+                   <p className="text-xs text-zinc-500 max-w-[200px]">Enter your Groq API key to use Llama 3.1. It is stored securely in your browser.</p>
+                   <input 
+                     value={tempKey} 
+                     onChange={(e) => setTempKey(e.target.value)}
+                     placeholder="gsk_..." 
+                     className="w-full text-sm p-2 border border-zinc-200 rounded-md focus:border-purple-400 focus:ring focus:ring-purple-200/50 outline-none"
+                     type="password"
+                   />
+                   <button 
+                     onClick={() => {
+                        if(tempKey.trim()) {
+                           localStorage.setItem('groq_api_key', tempKey.trim());
+                           setGroqKey(tempKey.trim());
+                        }
+                     }}
+                     className="w-full bg-purple-600 text-white text-sm font-medium py-2 rounded-md hover:bg-purple-700 transition"
+                   >Save Key</button>
+                </div>
+             ) : (
+                <div className="flex flex-col h-full items-center justify-center">
+                   <div className="flex items-center space-x-2 pb-2 mb-2 border-b border-zinc-100 shrink-0 w-full">
+                     <Sparkles size={14} className="text-purple-500" />
+                     <span className="text-xs font-medium text-zinc-600">Llama 3.1 (Groq)</span>
+                   </div>
+                   {isAiLoading ? (
+                      <div className="flex flex-col items-center justify-center py-4 w-full">
+                        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className="mb-2">
+                           <Sparkles size={16} className="text-purple-400" />
+                        </motion.div>
+                        <div className="text-xs text-zinc-400 text-center">Thinking...</div>
+                      </div>
+                   ) : (
+                       <div className="flex flex-col gap-2 w-full">
+                         <input 
+                           value={aiInput} 
+                           onChange={(e) => setAiInput(e.target.value)}
+                           onKeyDown={(e) => { if (e.key === 'Enter') handleAiSubmit(); }}
+                           placeholder="Ask or command AI..." 
+                           className="w-full text-sm p-2 bg-zinc-50 border border-zinc-200 rounded-md focus:bg-white focus:border-purple-400 outline-none"
+                           autoFocus
+                         />
+                         <button 
+                           onClick={handleAiSubmit} 
+                           disabled={isAiLoading || !aiInput.trim()}
+                           className="w-full bg-purple-600 text-white py-1.5 text-sm font-medium rounded-md hover:bg-purple-700 disabled:opacity-50 transition"
+                         >Submit</button>
+                       </div>
+                   )}
+                </div>
+             )}
           </div>
         )}
         
@@ -547,6 +702,8 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
             onRemove={() => onRemoveItem(item.id)}
             boardRef={boardRef}
             onImagePreview={onImagePreview}
+            allItems={items}
+            onAddItem={onAddItem}
           />
         ))}
       </AnimatePresence>
@@ -558,12 +715,15 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.1 }}
-            className="fixed z-50 w-48 bg-white/95 backdrop-blur-md rounded-xl shadow-xl shadow-black/5 border border-zinc-200 overflow-hidden py-1.5"
+            className="fixed z-50 w-56 bg-white/95 backdrop-blur-md rounded-xl shadow-xl shadow-black/5 border border-zinc-200 overflow-hidden py-1.5"
             style={{ left: menuPos.x, top: menuPos.y }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <button onClick={() => createItem('text', '')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
               <Type size={16} className="mr-3 text-zinc-400" /> Add Text
+            </button>
+            <button onClick={() => createItem('text-clear', '')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
+              <Type size={16} className="mr-3 text-zinc-400 opacity-50" /> Add Clear Text
             </button>
             <button onClick={() => createItem('task', '')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
               <CheckSquare size={16} className="mr-3 text-zinc-400" /> Add Task
@@ -580,6 +740,10 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
             </button>
             <button onClick={() => createItem('arrow', '')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
               <MoveUpRight size={16} className="mr-3 text-zinc-400" /> Add Arrow
+            </button>
+            <div className="h-px bg-zinc-200 my-1 mx-2"></div>
+            <button onClick={() => createItem('ai', '[]')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50 transition-colors">
+              <Sparkles size={16} className="mr-3 text-purple-500" /> Add AI Block
             </button>
           </motion.div>
         )}
