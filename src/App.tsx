@@ -64,7 +64,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const { data, getDayItems, addItem, updateItem, removeItem, replaceData } = useStore();
+  const { data, getDayItems, addItem, updateItem, removeItem, replaceData, isLoaded, isSaving, saveError } = useStore();
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -123,8 +123,31 @@ export default function App() {
   const dateKey = format(currentDate, 'yyyy-MM-dd');
   const items = getDayItems(dateKey);
 
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-[#f0f0f2] text-zinc-500 font-medium">
+        Loading workspace...
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen w-full bg-[#f0f0f2] text-zinc-900 overflow-hidden flex flex-col font-sans relative">
+      
+      {/* Save Status Indicator */}
+      <div className="absolute top-4 right-4 z-[100] flex items-center space-x-2 pointer-events-none">
+        {saveError && (
+          <span className="text-red-600 bg-red-100 px-3 py-1.5 rounded-full text-xs font-semibold flex items-center shadow-sm pointer-events-auto">
+            ⚠️ {saveError}
+          </span>
+        )}
+        {isSaving && !saveError && (
+          <span className="text-zinc-500 bg-white/80 px-3 py-1.5 rounded-full text-xs font-medium flex items-center shadow-sm backdrop-blur-sm pointer-events-auto">
+             <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-zinc-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+             Saving...
+          </span>
+        )}
+      </div>
       
       {/* Settings Menu Modal */}
       <AnimatePresence>

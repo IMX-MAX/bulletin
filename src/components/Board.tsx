@@ -661,14 +661,25 @@ Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
             ) : embedType ? (
               <div className="w-full h-full relative group flex-1 bg-zinc-50 rounded-lg overflow-hidden border border-zinc-200">
                 {embedType.type === 'player' ? (
-                  <div className="w-full h-full pointer-events-auto relative">
-                     {React.createElement(ReactPlayer as any, {
-                       url: embedType.url,
-                       width: '100%',
-                       height: '100%',
-                       controls: true,
-                       config: { file: { forceVideo: true } }
-                     })}
+                  <div className="w-full h-full pointer-events-auto relative bg-black/5 rounded-lg overflow-hidden flex items-center justify-center">
+                     {!/(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|soundcloud\.com)/i.test(embedType.url) ? (
+                        <video 
+                          src={embedType.url} 
+                          controls 
+                          className="w-full h-full object-contain pointer-events-auto" 
+                          onPointerDown={e => e.stopPropagation()} 
+                        />
+                     ) : (
+                        <div className="w-full h-full absolute inset-0">
+                          {React.createElement(ReactPlayer as any, {
+                            url: embedType.url,
+                            width: '100%',
+                            height: '100%',
+                            controls: true,
+                            config: { file: { forceVideo: true } }
+                          })}
+                        </div>
+                     )}
                      {!embedType.url.startsWith('data:') && (
                         <a href={embedType.url} target="_blank" rel="noopener noreferrer" className="absolute top-2 left-2 bg-black/60 text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-black/80 shadow-sm" title="Open in new tab">
                            <ExternalLink size={14} />
