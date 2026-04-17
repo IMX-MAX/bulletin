@@ -1,4 +1,4 @@
-export type ItemType = 'text' | 'text-clear' | 'task' | 'image' | 'embed' | 'video' | 'arrow' | 'ai';
+export type ItemType = 'text' | 'text-clear' | 'task' | 'image' | 'audio' | 'file' | 'embed' | 'video' | 'arrow' | 'ai';
 
 export interface TaskItem {
   id: string;
@@ -15,6 +15,8 @@ export interface BoardItem {
   height?: number;
   rotation?: number;
   content: string; // text, base64 image URL, embed URL, legacy task
+  fileName?: string; // name of the file uploaded
+  fileType?: string; // MIME type
   checked?: boolean; // legacy task
   tasks?: TaskItem[]; // modern multi-task
   endX?: number; // for arrow end point

@@ -38,9 +38,26 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Global settings
       if ((e.ctrlKey || e.metaKey) && e.key === '.') {
         e.preventDefault();
         setIsSettingsOpen(prev => !prev);
+        return;
+      }
+      
+      // Do not intercept if typing in an input or textarea
+      if (['INPUT', 'TEXTAREA', 'DIV'].includes(document.activeElement?.tagName || '') && (document.activeElement as HTMLElement).isContentEditable) return;
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+
+      if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        setCurrentDate(prev => addDays(prev, 1));
+      } else if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setCurrentDate(prev => addDays(prev, -1));
+      } else if (e.altKey && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        setCurrentDate(new Date());
       }
     };
     window.addEventListener('keydown', handleKeyDown);

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
-import { GripHorizontal, Trash2, Type, CheckSquare, Image as ImageIcon, Link as LinkIcon, ExternalLink, Edit2, PlaySquare, MoveUpRight, Sparkles } from 'lucide-react';
+import { GripHorizontal, Trash2, Type, CheckSquare, Image as ImageIcon, Link as LinkIcon, ExternalLink, Edit2, PlaySquare, MoveUpRight, Sparkles, File, Music, Download } from 'lucide-react';
 import { BoardItem, ItemType } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -669,9 +669,11 @@ Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
                        controls: true,
                        config: { file: { forceVideo: true } }
                      })}
-                     <a href={embedType.url} target="_blank" rel="noopener noreferrer" className="absolute top-2 left-2 bg-black/60 text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-black/80 shadow-sm" title="Open in new tab">
-                        <ExternalLink size={14} />
-                     </a>
+                     {!embedType.url.startsWith('data:') && (
+                        <a href={embedType.url} target="_blank" rel="noopener noreferrer" className="absolute top-2 left-2 bg-black/60 text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-black/80 shadow-sm" title="Open in new tab">
+                           <ExternalLink size={14} />
+                        </a>
+                     )}
                   </div>
                 ) : (
                   <a href={embedType.src} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center p-4 hover:bg-zinc-100 transition-colors pointer-events-auto cursor-pointer">
@@ -688,6 +690,32 @@ Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
                 </button>
               </div>
             ) : null}
+          </div>
+        )}
+
+        {item.type === 'audio' && (
+          <div className="w-full h-full relative flex items-center justify-center p-4 bg-zinc-50 border border-zinc-200 rounded-lg pointer-events-none">
+             <audio src={item.content} controls className="w-full pointer-events-auto shadow-sm" onPointerDown={e => e.stopPropagation()} />
+          </div>
+        )}
+
+        {item.type === 'file' && (
+          <div className="w-full h-full relative flex flex-col items-center justify-center p-4 bg-zinc-50 border border-zinc-200 rounded-lg pointer-events-none group-hover/file:bg-zinc-100 transition-colors">
+             <File size={32} className="text-zinc-400 mb-2 pointer-events-auto cursor-pointer hover:text-zinc-600 transition-colors" onClick={() => {
+                const a = document.createElement('a'); 
+                a.href = item.content; 
+                a.download = item.fileName || 'file'; 
+                a.click();
+             }} />
+             <span className="text-sm font-medium text-zinc-600 truncate w-full text-center px-4 pointer-events-none">{item.fileName || 'Attached File'}</span>
+             <button onClick={() => {
+                const a = document.createElement('a'); 
+                a.href = item.content; 
+                a.download = item.fileName || 'file'; 
+                a.click();
+             }} className="mt-3 text-xs text-zinc-600 hover:text-zinc-900 pointer-events-auto bg-white border border-zinc-200 px-3 py-1.5 rounded-md shadow-sm flex items-center transition-colors">
+                <Download size={14} className="mr-1.5"/> Download
+             </button>
           </div>
         )}
         
@@ -743,6 +771,29 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
     });
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        const rect = boardRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+        
+        setContextMenu({
+          x: centerX - rect.left,
+          y: centerY - rect.top
+        });
+        setMenuPos({
+          x: Math.min(centerX, window.innerWidth - 200),
+          y: Math.min(centerY, window.innerHeight - 200)
+        });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const closeMenu = () => setContextMenu(null);
 
   const createItem = (type: ItemType, content: string = '') => {
@@ -761,45 +812,78 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
     closeMenu();
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("Image is too large. Please select an image under 5MB.");
+      if (file.size > 15 * 1024 * 1024) {
+        alert("File is too large. Please select a file under 15MB to prevent storage limits.");
         return;
       }
+      
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      const isAudio = file.type.startsWith('audio/');
+      
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          const img = new Image();
-          img.onload = () => {
-             // scale down large images
-             let w = img.width;
-             let h = img.height;
-             const MAX_DIMENSION = 400; // prevents giant image spawns
-             if (w > MAX_DIMENSION || h > MAX_DIMENSION) {
-                if (w > h) {
-                   h = (MAX_DIMENSION / w) * h;
-                   w = MAX_DIMENSION;
-                } else {
-                   w = (MAX_DIMENSION / h) * w;
-                   h = MAX_DIMENSION;
-                }
-             }
+          const base64 = event.target.result.toString();
+          
+          if (!contextMenu) return;
 
-             if (!contextMenu) return;
+          if (isImage) {
+            const img = new Image();
+            img.onload = () => {
+               // scale down large images
+               let w = img.width;
+               let h = img.height;
+               const MAX_DIMENSION = 400; // prevents giant image spawns
+               if (w > MAX_DIMENSION || h > MAX_DIMENSION) {
+                  if (w > h) {
+                     h = (MAX_DIMENSION / w) * h;
+                     w = MAX_DIMENSION;
+                  } else {
+                     w = (MAX_DIMENSION / h) * w;
+                     h = MAX_DIMENSION;
+                  }
+               }
 
-             onAddItem({ 
-                id: crypto.randomUUID(), 
-                type: 'image', 
-                x: contextMenu.x, 
-                y: contextMenu.y, 
-                content: img.src,
-                width: w,
-                height: h
-             });
-          };
-          img.src = event.target.result.toString();
+               onAddItem({ 
+                  id: crypto.randomUUID(), 
+                  type: 'image', 
+                  x: contextMenu.x, 
+                  y: contextMenu.y, 
+                  content: base64,
+                  width: w,
+                  height: h
+               });
+            };
+            img.src = base64;
+          } else {
+            let itemType: ItemType = 'file';
+            let w = 300;
+            let h = undefined;
+            if (isVideo) {
+               itemType = 'video';
+               w = 400;
+               h = 250;
+            } else if (isAudio) {
+               itemType = 'audio';
+               w = 320;
+               h = 100;
+            }
+            onAddItem({ 
+               id: crypto.randomUUID(), 
+               type: itemType, 
+               x: contextMenu.x, 
+               y: contextMenu.y, 
+               content: base64,
+               fileName: file.name,
+               fileType: file.type,
+               width: w,
+               height: h
+            });
+          }
         }
       };
       reader.readAsDataURL(file);
@@ -855,7 +939,7 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
             </button>
             <div className="h-px bg-zinc-200 my-1 mx-2"></div>
             <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
-              <ImageIcon size={16} className="mr-3 text-zinc-400" /> Add Image
+              <File size={16} className="mr-3 text-zinc-400" /> Add File / Media
             </button>
             <button onClick={() => createItem('video', '')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
               <PlaySquare size={16} className="mr-3 text-zinc-400" /> Add Video
@@ -874,7 +958,7 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
         )}
       </AnimatePresence>
 
-      <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
+      <input type="file" accept="*/*" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
     </div>
   );
 };
