@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
-import { GripHorizontal, Trash2, Type, CheckSquare, Image as ImageIcon, Link as LinkIcon, ExternalLink, Edit2, PlaySquare, MoveUpRight, Sparkles, File, Music, Download } from 'lucide-react';
+import { GripHorizontal, Trash2, Type, CheckSquare, Image as ImageIcon, Link as LinkIcon, ExternalLink, Edit2, PlaySquare, MoveUpRight, Sparkles, File, Music, Download, Image, Smile } from 'lucide-react';
 import { BoardItem, ItemType } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -8,6 +8,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import ReactPlayer from 'react-player';
+import EmojiPicker from 'emoji-picker-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -438,7 +439,8 @@ Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
         isDragging ? "shadow-xl shadow-zinc-900/10 scale-[1.02] cursor-grabbing" : "cursor-grab",
         item.type === 'image' && "p-2",
         item.type === 'arrow' && "bg-transparent backdrop-blur-none border-none shadow-none p-0 overflow-visible",
-        item.type === 'text-clear' && "bg-transparent backdrop-blur-none border-transparent shadow-none p-4 overflow-visible hover:border-zinc-200/50"
+        item.type === 'text-clear' && "bg-transparent backdrop-blur-none border-transparent shadow-none p-4 overflow-visible hover:border-zinc-200/50",
+        item.type === 'sticker' && "bg-transparent backdrop-blur-none border-transparent shadow-none p-0 overflow-visible hover:border-zinc-200/50"
       )}>
         {isEnhancing && (
           <div className="absolute inset-0 z-50 bg-white/50 backdrop-blur-sm rounded-2xl flex items-center justify-center pointer-events-none">
@@ -729,6 +731,12 @@ Do NOT wrap in markdown backticks. Return strictly JSON. Be concise.`
              </button>
           </div>
         )}
+
+        {item.type === 'sticker' && (
+          <div className="w-full h-full relative flex items-center justify-center p-2 rounded-lg pointer-events-none">
+             <span className="text-[120px] leading-none pointer-events-auto drop-shadow-sm select-none" style={{ fontSize: `${Math.min(size.width, size.height) * 0.8}px` }}>{item.content}</span>
+          </div>
+        )}
         
         <div 
           className={cn(
@@ -761,6 +769,11 @@ interface BoardProps {
 export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, onImagePreview }: BoardProps) => {
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
   const [menuPos, setMenuPos] = useState<{ x: number, y: number } | null>(null);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [unsplashOpen, setUnsplashOpen] = useState(false);
+  const [unsplashQuery, setUnsplashQuery] = useState('');
+  const [unsplashResults, setUnsplashResults] = useState<any[]>([]);
+  const [isUnsplashLoading, setIsUnsplashLoading] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -809,11 +822,27 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
 
   const createItem = (type: ItemType, content: string = '') => {
     if (!contextMenu) return;
+    
+    let width = 300;
+    let height: number | undefined = undefined;
+    
+    if (type === 'video') {
+       width = 400;
+       height = 250;
+    } else if (type === 'embed') {
+       height = 160;
+    } else if (type === 'sticker') {
+       width = 150;
+       height = 150;
+    }
+
     const itemData: Omit<BoardItem, 'id'> = {
       type,
       x: contextMenu.x,
       y: contextMenu.y,
       content,
+      width,
+      height
     };
     if (type === 'task') {
       onAddItem({ ...itemData, id: crypto.randomUUID(), tasks: [{ id: crypto.randomUUID(), text: '', checked: false }] });
@@ -843,7 +872,7 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
           if (!contextMenu) return;
 
           if (isImage) {
-            const img = new Image();
+            const img = document.createElement('img');
             img.onload = () => {
                // scale down large images
                let w = img.width;
@@ -961,6 +990,12 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
             <button onClick={() => createItem('arrow', '')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
               <MoveUpRight size={16} className="mr-3 text-zinc-400" /> Add Arrow
             </button>
+            <button onClick={() => setUnsplashOpen(true)} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
+              <Image size={16} className="mr-3 text-zinc-400" /> Search Unsplash
+            </button>
+            <button onClick={() => setStickerPickerOpen(true)} className="w-full flex items-center px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors">
+              <Smile size={16} className="mr-3 text-zinc-400" /> Add Sticker
+            </button>
             <div className="h-px bg-zinc-200 my-1 mx-2"></div>
             <button onClick={() => createItem('ai', '[]')} className="w-full flex items-center px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50 transition-colors">
               <Sparkles size={16} className="mr-3 text-purple-500" /> Add AI Block
@@ -970,6 +1005,117 @@ export const Board = ({ dateKey, items, onAddItem, onUpdateItem, onRemoveItem, o
       </AnimatePresence>
 
       <input type="file" accept="*/*" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+
+      <AnimatePresence>
+        {stickerPickerOpen && (
+           <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed z-[100] bg-white rounded-xl shadow-2xl overflow-hidden"
+              style={{ left: menuPos?.x || window.innerWidth/2, top: menuPos?.y || window.innerHeight/2 }}
+              onPointerDown={(e) => e.stopPropagation()}
+           >
+              <div className="flex justify-between items-center p-3 border-b border-zinc-100 bg-zinc-50">
+                 <span className="text-sm font-semibold text-zinc-700">Add Sticker</span>
+                 <button onClick={() => setStickerPickerOpen(false)} className="text-zinc-400 hover:text-zinc-600">×</button>
+              </div>
+              <EmojiPicker onEmojiClick={(emojiData) => {
+                 createItem('sticker', emojiData.emoji);
+                 setStickerPickerOpen(false);
+              }} />
+           </motion.div>
+        )}
+      </AnimatePresence>
+      
+      <AnimatePresence>
+        {unsplashOpen && (
+           <motion.div
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+             onPointerDown={() => setUnsplashOpen(false)}
+           >
+              <div 
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                 <div className="p-4 border-b border-zinc-200 flex space-x-2 items-center bg-zinc-50">
+                    <Image size={20} className="text-zinc-400" />
+                    <input 
+                      type="text"
+                      className="flex-1 bg-transparent outline-none text-zinc-800 placeholder-zinc-400 font-medium"
+                      placeholder="Search Unsplash for images..."
+                      value={unsplashQuery}
+                      onChange={(e) => setUnsplashQuery(e.target.value)}
+                      onKeyDown={async (e) => {
+                         if (e.key === 'Enter' && unsplashQuery.trim()) {
+                            setIsUnsplashLoading(true);
+                            try {
+                               const accessKey = (import.meta as any).env.VITE_UNSPLASH_ACCESS_KEY;
+                               if (!accessKey) {
+                                  alert("Unsplash API key not found. Please set VITE_UNSPLASH_ACCESS_KEY.");
+                                  setIsUnsplashLoading(false);
+                                  return;
+                               }
+                               const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(unsplashQuery)}&per_page=30&client_id=${accessKey}`);
+                               if (!res.ok) throw new Error("Unsplash API Error: " + res.statusText);
+                               const data = await res.json();
+                               setUnsplashResults(data.results || []);
+                            } catch (err) {
+                               console.error(err);
+                               alert("Failed to search Unsplash. Please check your API keys.");
+                            } finally {
+                               setIsUnsplashLoading(false);
+                            }
+                         }
+                      }}
+                      autoFocus
+                    />
+                    {isUnsplashLoading && <Sparkles size={16} className="text-zinc-400 animate-pulse" />}
+                 </div>
+                 
+                 <div className="flex-1 overflow-y-auto p-4 bg-zinc-100">
+                    {unsplashResults.length === 0 && !isUnsplashLoading ? (
+                       <div className="h-full flex flex-col items-center justify-center text-zinc-400">
+                          <Image size={48} className="mb-4 opacity-50" />
+                          <p>Type a search term and press Enter</p>
+                       </div>
+                    ) : (
+                       <div className="grid grid-cols-3 gap-4">
+                          {unsplashResults.map((img: any) => (
+                             <div 
+                               key={img.id}
+                               className="aspect-video relative rounded-lg overflow-hidden cursor-pointer group shadow-sm hover:shadow-md hover:ring-2 ring-blue-500 transition-all bg-zinc-200"
+                               onClick={() => {
+                                  onAddItem({
+                                     id: crypto.randomUUID(),
+                                     type: 'image',
+                                     x: contextMenu?.x || window.innerWidth/2,
+                                     y: contextMenu?.y || window.innerHeight/2,
+                                     content: img.urls.regular,
+                                     width: 400,
+                                     height: (img.height / img.width) * 400
+                                  });
+                                  setUnsplashOpen(false);
+                                  closeMenu();
+                               }}
+                             >
+                                <img src={img.urls.small} alt={img.alt_description} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                                <a href={`${img.user.links.html}?utm_source=bulletin_app&utm_medium=referral`} target="_blank" rel="noopener noreferrer" className="absolute bottom-2 left-2 text-[10px] text-white bg-black/50 px-2 py-1 rounded backdrop-blur-sm opacity-0 group-hover:opacity-100" onClick={e => e.stopPropagation()}>
+                                   {img.user.name}
+                                </a>
+                             </div>
+                          ))}
+                       </div>
+                    )}
+                 </div>
+              </div>
+           </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

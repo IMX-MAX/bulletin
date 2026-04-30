@@ -1,15 +1,20 @@
-Bulletin is a quiet and mindful way to manage your thoughts, tasks, and ideas. It stores all your user data using indexedDB, so it doesn't require the cloud at all.
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-STEPS TO DEPLOY
-1. Download repository onto personal device
-2. Use terminal to host Bulletin in a development environment.
-Important: You must use the same dev server if you wish to retain the data. The bulletin file you get when you download it from the crtl + . menu is compatible through all instances of bulletin.
+# Run and deploy your AI Studio app
 
-DEPLOY VIA VERCEL / OTHER HOST
-1. Clone repository to personal account
-2. Use Vercel or any other web hosting service to launch the app on your own domain.
+This contains everything you need to run your app locally.
 
-USE BULLETIN VIA CLOUD
-1. Go to https://bulletin.nafen.sbs/ and use it without any issues. This does limit costoizability of the app though, if you wish to make changes. You can swtich instances any time by simply uploading your workspace or starting fresh.
+View your app in AI Studio: https://ai.studio/apps/4b937bfe-b02d-4a8f-bcac-df011b111217
 
-Developed by https://nafen.sbs/
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
